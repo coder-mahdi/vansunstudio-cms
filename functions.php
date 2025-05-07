@@ -258,41 +258,57 @@ function register_booking_endpoint() {
 add_action('rest_api_init', 'register_booking_endpoint');
 
 // Handle Booking Creation
-function handle_booking_creation($request) {
+function handle_booking_creation( $request ) {
     $params = $request->get_params();
-    
-    // Validate required fields
-    if (empty($params['full_name']) || empty($params['email']) || 
-        empty($params['phone']) || empty($params['date']) || 
-        empty($params['time']) || empty($params['product_id'])) {
-        return new WP_Error('missing_fields', 'All fields are required', array('status' => 400));
+
+    if ( empty( $params['full_name'] ) ||
+         empty( $params['email_address'] ) ||
+         empty( $params['phone'] ) ||
+         empty( $params['date'] ) ||
+         empty( $params['time'] ) ||
+         empty( $params['product_id'] ) ) {
+
+        return new WP_Error(
+            'missing_fields',
+            'All fields are required',
+            array( 'status' => 400 )
+        );
     }
 
-    // Create booking post
+    // ۲. ایجاد پست از نوع booking
     $booking_data = array(
-        'post_title'    => $params['full_name'] . ' - ' . $params['date'],
-        'post_status'   => 'publish',
-        'post_type'     => 'booking'
+        'post_title'  => sanitize_text_field( $params['full_name'] ) . ' - ' . sanitize_text_field( $params['date'] ),
+        'post_status' => 'publish',
+        'post_type'   => 'booking',
     );
 
-    $booking_id = wp_insert_post($booking_data);
+    $booking_id = wp_insert_post( $booking_data );
 
-    if (is_wp_error($booking_id)) {
-        return new WP_Error('booking_creation_failed', 'Failed to create booking', array('status' => 500));
+    if ( is_wp_error( $booking_id ) ) {
+        return new WP_Error(
+            'booking_creation_failed',
+            'Failed to create booking',
+            array( 'status' => 500 )
+        );
     }
 
-    // Save booking meta data
-    update_post_meta($booking_id, 'full_name', sanitize_text_field($params['full_name']));
-    update_post_meta($booking_id, 'email', sanitize_email($params['email']));
-    update_post_meta($booking_id, 'phone', sanitize_text_field($params['phone']));
-    update_post_meta($booking_id, 'booking_date', sanitize_text_field($params['date']));
-    update_post_meta($booking_id, 'booking_time', sanitize_text_field($params['time']));
-    update_post_meta($booking_id, 'product_id', intval($params['product_id']));
+    // ۳. ساخت آرایهٔ گروپ فیلد برای ACF
+    $booking_group = array(
+        '_full_name'     => sanitize_text_field( $params['full_name'] ),
+        '_phone'         => sanitize_text_field( $params['phone'] ),
+        '_date'          => sanitize_text_field( $params['date'] ),       // ACF date picker expects Y-m-d
+        '_time'          => sanitize_text_field( $params['time'] ),       // ACF time picker expects H:i
+        '_product_id'    => intval( $params['product_id'] ),
+        '_email_address' => sanitize_email( $params['email_address'] ),
+    );
 
+    // ۴. ذخیرهٔ گروپ فیلد booking_fields
+    update_field( 'booking_fields', $booking_group, $booking_id );
+
+    // ۵. بازگرداندن پاسخ موفقیت
     return array(
-        'success' => true,
+        'success'    => true,
         'booking_id' => $booking_id,
-        'message' => 'Booking created successfully'
-    );		
-	
-} 
+        'message'    => 'Booking created successfully',
+    );
+}
