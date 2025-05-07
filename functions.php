@@ -202,54 +202,34 @@ function vansunstudio_cms_add_woocommerce_support() {
 }
 add_action('after_setup_theme', 'vansunstudio_cms_add_woocommerce_support');
 
-// Register Custom Post Type for Booking
-function register_booking_post_type() {
-    $labels = array(
-        'name'                  => _x('Bookings', 'Post Type General Name', 'vancouver'),
-        'singular_name'         => _x('Booking', 'Post Type Singular Name', 'vancouver'),
-        'menu_name'            => __('Bookings', 'vancouver'),
-        'name_admin_bar'       => __('Booking', 'vancouver'),
-        'archives'             => __('Booking Archives', 'vancouver'),
-        'add_new'              => __('Add New', 'vancouver'),
-        'add_new_item'         => __('Add New Booking', 'vancouver'),
-        'new_item'             => __('New Booking', 'vancouver'),
-        'edit_item'            => __('Edit Booking', 'vancouver'),
-        'view_item'            => __('View Booking', 'vancouver'),
-        'all_items'            => __('All Bookings', 'vancouver'),
-        'search_items'         => __('Search Bookings', 'vancouver'),
-        'not_found'            => __('No bookings found.', 'vancouver'),
-        'not_found_in_trash'   => __('No bookings found in Trash.', 'vancouver'),
-    );
+/ Enable WooCommerce Bookings REST API
+add_filter('woocommerce_rest_api_enabled', '__return_true');
+add_filter('woocommerce_rest_api_enable_bookings', '__return_true');
 
-    $args = array(
-        'label'               => __('Booking', 'vancouver'),
-        'description'         => __('Booking entries', 'vancouver'),
-        'labels'              => $labels,
-        'supports'            => array('title', 'editor', 'custom-fields'),
-        'hierarchical'        => false,
-        'public'              => true,
-        'show_ui'             => true,
-        'show_in_menu'        => true,
-        'menu_position'       => 5,
-        'menu_icon'           => 'dashicons-calendar-alt',
-        'show_in_admin_bar'   => true,
-        'show_in_nav_menus'   => true,
-        'can_export'          => true,
-        'has_archive'         => true,
-        'exclude_from_search' => false,
-        'publicly_queryable'  => true,
-        'capability_type'     => 'post',
-        'show_in_rest'        => true, // Enable REST API support
-        'rest_base'           => 'booking', // REST API base URL
-    );
+// Add CORS headers for React frontend
+add_action('rest_api_init', function() {
+    remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
+    add_filter('rest_pre_serve_request', function($value) {
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: POST, GET, OPTIONS, PUT, DELETE');
+        header('Access-Control-Allow-Credentials: true');
+        header('Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept');
+        return $value;
+    });
+}, 15);
 
-    register_post_type('booking', $args);
+// Add support for WooCommerce
+function vansunstudio_cms_add_woocommerce_support() {
+    add_theme_support('woocommerce');
+    add_theme_support('wc-product-gallery-zoom');
+    add_theme_support('wc-product-gallery-lightbox');
+    add_theme_support('wc-product-gallery-slider');
 }
-add_action('init', 'register_booking_post_type');
+add_action('after_setup_theme', 'vansunstudio_cms_add_woocommerce_support');
 
 // Register Custom Booking Endpoint
 function register_booking_endpoint() {
-	register_rest_route('vansunstudio/v1', '/booking', array(
+    register_rest_route('vansunstudio/v1', '/booking', array(
         'methods' => 'POST',
         'callback' => 'handle_booking_creation',
         'permission_callback' => '__return_true'
@@ -258,57 +238,58 @@ function register_booking_endpoint() {
 add_action('rest_api_init', 'register_booking_endpoint');
 
 // Handle Booking Creation
-function handle_booking_creation( $request ) {
+function handle_booking_creation($request) {
     $params = $request->get_params();
+    
+    // Debug information
+    error_log('Booking endpoint called');
+    error_log('Request parameters: ' . print_r($params, true));
 
-    if ( empty( $params['full_name'] ) ||
-         empty( $params['email_address'] ) ||
-         empty( $params['phone'] ) ||
-         empty( $params['date'] ) ||
-         empty( $params['time'] ) ||
-         empty( $params['product_id'] ) ) {
-
-        return new WP_Error(
-            'missing_fields',
-            'All fields are required',
-            array( 'status' => 400 )
-        );
+    // Validate required fields
+    if (empty($params['full_name']) || 
+        empty($params['email_address']) || 
+        empty($params['phone']) || 
+        empty($params['date']) || 
+        empty($params['time']) || 
+        empty($params['product_id'])) {
+        error_log('Missing required fields');
+        return new WP_Error('missing_fields', 'All fields are required', array('status' => 400));
     }
 
-    // ۲. ایجاد پست از نوع booking
+    // Get the product
+    $product = wc_get_product($params['product_id']);
+    if (!$product || !is_a($product, 'WC_Product_Booking')) {
+        error_log('Invalid product or not a booking product');
+        return new WP_Error('invalid_product', 'Invalid booking product', array('status' => 400));
+    }
+
+    // Create booking data
     $booking_data = array(
-        'post_title'  => sanitize_text_field( $params['full_name'] ) . ' - ' . sanitize_text_field( $params['date'] ),
-        'post_status' => 'publish',
-        'post_type'   => 'booking',
+        'product_id' => $params['product_id'],
+        'start_date' => $params['date'] . ' ' . $params['time'],
+        'end_date' => $params['date'] . ' ' . $params['time'], // You might want to calculate this based on duration
+        'customer_id' => 0, // Guest booking
+        'status' => 'confirmed',
+        'customer_name' => sanitize_text_field($params['full_name']),
+        'customer_email' => sanitize_email($params['email_address']),
+        'customer_phone' => sanitize_text_field($params['phone'])
     );
 
-    $booking_id = wp_insert_post( $booking_data );
+    // Create the booking
+    $booking = new WC_Booking();
+    $booking->set_props($booking_data);
+    $booking->save();
 
-    if ( is_wp_error( $booking_id ) ) {
-        return new WP_Error(
-            'booking_creation_failed',
-            'Failed to create booking',
-            array( 'status' => 500 )
-        );
+    if (!$booking->get_id()) {
+        error_log('Failed to create booking');
+        return new WP_Error('booking_creation_failed', 'Failed to create booking', array('status' => 500));
     }
 
-    // ۳. ساخت آرایهٔ گروپ فیلد برای ACF
-    $booking_group = array(
-        '_full_name'     => sanitize_text_field( $params['full_name'] ),
-        '_phone'         => sanitize_text_field( $params['phone'] ),
-        '_date'          => sanitize_text_field( $params['date'] ),       // ACF date picker expects Y-m-d
-        '_time'          => sanitize_text_field( $params['time'] ),       // ACF time picker expects H:i
-        '_product_id'    => intval( $params['product_id'] ),
-        '_email_address' => sanitize_email( $params['email_address'] ),
-    );
+    error_log('Booking created successfully with ID: ' . $booking->get_id());
 
-    // ۴. ذخیرهٔ گروپ فیلد booking_fields
-    update_field( 'booking_fields', $booking_group, $booking_id );
-
-    // ۵. بازگرداندن پاسخ موفقیت
     return array(
-        'success'    => true,
-        'booking_id' => $booking_id,
-        'message'    => 'Booking created successfully',
+        'success' => true,
+        'booking_id' => $booking->get_id(),
+        'message' => 'Booking created successfully'
     );
-}
+} 
