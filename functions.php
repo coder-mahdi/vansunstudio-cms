@@ -249,7 +249,7 @@ add_action('init', 'register_booking_post_type');
 
 // Register Custom Booking Endpoint
 function register_booking_endpoint() {
-    register_rest_route('custom-booking-endpoint/v1', '/create', array(
+	register_rest_route('vansunstudio/v1', '/booking', array(
         'methods' => 'POST',
         'callback' => 'handle_booking_creation',
         'permission_callback' => '__return_true'
