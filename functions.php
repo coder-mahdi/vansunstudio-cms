@@ -176,6 +176,7 @@ if ( defined( 'JETPACK__VERSION' ) ) {
 	require get_template_directory() . '/inc/jetpack.php';
 }
 
+
 // Enable WooCommerce Bookings REST API
 add_filter('woocommerce_rest_api_enabled', '__return_true');
 add_filter('woocommerce_rest_api_enable_bookings', '__return_true');
@@ -200,7 +201,6 @@ function vansunstudio_cms_add_woocommerce_support() {
     add_theme_support('wc-product-gallery-slider');
 }
 add_action('after_setup_theme', 'vansunstudio_cms_add_woocommerce_support');
-
 
 // Register Custom Post Type for Booking
 function register_booking_post_type() {
@@ -245,4 +245,54 @@ function register_booking_post_type() {
 
     register_post_type('booking', $args);
 }
-add_action('init', 'register_booking_post_type'); 
+add_action('init', 'register_booking_post_type');
+
+// Register Custom Booking Endpoint
+function register_booking_endpoint() {
+    register_rest_route('custom-booking-endpoint/v1', '/create', array(
+        'methods' => 'POST',
+        'callback' => 'handle_booking_creation',
+        'permission_callback' => '__return_true'
+    ));
+}
+add_action('rest_api_init', 'register_booking_endpoint');
+
+// Handle Booking Creation
+function handle_booking_creation($request) {
+    $params = $request->get_params();
+    
+    // Validate required fields
+    if (empty($params['full_name']) || empty($params['email']) || 
+        empty($params['phone']) || empty($params['date']) || 
+        empty($params['time']) || empty($params['product_id'])) {
+        return new WP_Error('missing_fields', 'All fields are required', array('status' => 400));
+    }
+
+    // Create booking post
+    $booking_data = array(
+        'post_title'    => $params['full_name'] . ' - ' . $params['date'],
+        'post_status'   => 'publish',
+        'post_type'     => 'booking'
+    );
+
+    $booking_id = wp_insert_post($booking_data);
+
+    if (is_wp_error($booking_id)) {
+        return new WP_Error('booking_creation_failed', 'Failed to create booking', array('status' => 500));
+    }
+
+    // Save booking meta data
+    update_post_meta($booking_id, 'full_name', sanitize_text_field($params['full_name']));
+    update_post_meta($booking_id, 'email', sanitize_email($params['email']));
+    update_post_meta($booking_id, 'phone', sanitize_text_field($params['phone']));
+    update_post_meta($booking_id, 'booking_date', sanitize_text_field($params['date']));
+    update_post_meta($booking_id, 'booking_time', sanitize_text_field($params['time']));
+    update_post_meta($booking_id, 'product_id', intval($params['product_id']));
+
+    return array(
+        'success' => true,
+        'booking_id' => $booking_id,
+        'message' => 'Booking created successfully'
+    );		
+	
+} 
