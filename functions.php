@@ -177,55 +177,32 @@ if ( defined( 'JETPACK__VERSION' ) ) {
 }
 
 
+
+// Add CORS headers for React frontend
+// Add CORS headers for React frontend
+add_action('rest_api_init', function() {
+    remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
+    add_filter('rest_pre_serve_request', function($value) {
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: POST, GET, OPTIONS, PUT, DELETE');
+        header('Access-Control-Allow-Credentials: true');
+        header('Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept');
+        return $value;
+    });
+}, 15);
+
+// Add support for WooCommerce
+function vansunstudio_cms_add_woocommerce_support() {
+    add_theme_support('woocommerce');
+    add_theme_support('wc-product-gallery-zoom');
+    add_theme_support('wc-product-gallery-lightbox');
+    add_theme_support('wc-product-gallery-slider');
+}
+add_action('after_setup_theme', 'vansunstudio_cms_add_woocommerce_support');
+
 // Enable WooCommerce Bookings REST API
 add_filter('woocommerce_rest_api_enabled', '__return_true');
 add_filter('woocommerce_rest_api_enable_bookings', '__return_true');
-
-// Add CORS headers for React frontend
-add_action('rest_api_init', function() {
-    remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
-    add_filter('rest_pre_serve_request', function($value) {
-        header('Access-Control-Allow-Origin: *');
-        header('Access-Control-Allow-Methods: POST, GET, OPTIONS, PUT, DELETE');
-        header('Access-Control-Allow-Credentials: true');
-        header('Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept');
-        return $value;
-    });
-}, 15);
-
-// Add support for WooCommerce
-function vansunstudio_cms_add_woocommerce_support() {
-    add_theme_support('woocommerce');
-    add_theme_support('wc-product-gallery-zoom');
-    add_theme_support('wc-product-gallery-lightbox');
-    add_theme_support('wc-product-gallery-slider');
-}
-add_action('after_setup_theme', 'vansunstudio_cms_add_woocommerce_support');
-
-/ Enable WooCommerce Bookings REST API
-add_filter('woocommerce_rest_api_enabled', '__return_true');
-add_filter('woocommerce_rest_api_enable_bookings', '__return_true');
-
-// Add CORS headers for React frontend
-add_action('rest_api_init', function() {
-    remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
-    add_filter('rest_pre_serve_request', function($value) {
-        header('Access-Control-Allow-Origin: *');
-        header('Access-Control-Allow-Methods: POST, GET, OPTIONS, PUT, DELETE');
-        header('Access-Control-Allow-Credentials: true');
-        header('Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept');
-        return $value;
-    });
-}, 15);
-
-// Add support for WooCommerce
-function vansunstudio_cms_add_woocommerce_support() {
-    add_theme_support('woocommerce');
-    add_theme_support('wc-product-gallery-zoom');
-    add_theme_support('wc-product-gallery-lightbox');
-    add_theme_support('wc-product-gallery-slider');
-}
-add_action('after_setup_theme', 'vansunstudio_cms_add_woocommerce_support');
 
 // Register Custom Booking Endpoint
 function register_booking_endpoint() {
@@ -239,9 +216,11 @@ add_action('rest_api_init', 'register_booking_endpoint');
 
 // Handle Booking Creation
 function handle_booking_creation($request) {
+    if ( ! class_exists('WC_Booking') ) {
+        return new WP_Error('booking_plugin_missing', 'WooCommerce Bookings plugin is not active', array('status' => 500));
+    }
+
     $params = $request->get_params();
-    
-    // Debug information
     error_log('Booking endpoint called');
     error_log('Request parameters: ' . print_r($params, true));
 
@@ -256,33 +235,47 @@ function handle_booking_creation($request) {
         return new WP_Error('missing_fields', 'All fields are required', array('status' => 400));
     }
 
-    // Get the product
     $product = wc_get_product($params['product_id']);
     if (!$product || !is_a($product, 'WC_Product_Booking')) {
         error_log('Invalid product or not a booking product');
         return new WP_Error('invalid_product', 'Invalid booking product', array('status' => 400));
     }
 
-    // Create booking data
+    // Parse start date/time
+    $start_datetime_str = $params['date'] . ' ' . $params['time'];
+    $start_datetime = DateTime::createFromFormat('Y-m-d H:i', $start_datetime_str, wp_timezone());
+    if (!$start_datetime) {
+        return new WP_Error('invalid_date', 'Invalid date or time format', array('status' => 400));
+    }
+
+    // Set duration: here 1 hour (can be adjusted)
+    $duration_in_minutes = 60;
+    $end_datetime = clone $start_datetime;
+    $end_datetime->modify("+{$duration_in_minutes} minutes");
+
     $booking_data = array(
-        'product_id' => $params['product_id'],
-        'start_date' => $params['date'] . ' ' . $params['time'],
-        'end_date' => $params['date'] . ' ' . $params['time'], // You might want to calculate this based on duration
-        'customer_id' => 0, // Guest booking
-        'status' => 'confirmed',
-        'customer_name' => sanitize_text_field($params['full_name']),
-        'customer_email' => sanitize_email($params['email_address']),
-        'customer_phone' => sanitize_text_field($params['phone'])
+        'product_id'      => (int) $params['product_id'],
+        'start_date'      => $start_datetime->format('Y-m-d H:i:s'),
+        'end_date'        => $end_datetime->format('Y-m-d H:i:s'),
+        'customer_id'     => 0,
+        'status'          => 'confirmed',
+        'customer_name'   => sanitize_text_field($params['full_name']),
+        'customer_email'  => sanitize_email($params['email_address']),
+        'customer_phone'  => sanitize_text_field($params['phone']),
     );
 
-    // Create the booking
-    $booking = new WC_Booking();
-    $booking->set_props($booking_data);
-    $booking->save();
+    try {
+        $booking = new WC_Booking();
+        $booking->set_props($booking_data);
+        $booking->save();
+    } catch (Exception $e) {
+        error_log('Booking exception: ' . $e->getMessage());
+        return new WP_Error('booking_creation_failed', 'Failed to create booking: ' . $e->getMessage(), array('status' => 500));
+    }
 
     if (!$booking->get_id()) {
         error_log('Failed to create booking');
-        return new WP_Error('booking_creation_failed', 'Failed to create booking', array('status' => 500));
+        return new WP_Error('booking_creation_failed', 'Booking could not be saved', array('status' => 500));
     }
 
     error_log('Booking created successfully with ID: ' . $booking->get_id());
@@ -292,4 +285,4 @@ function handle_booking_creation($request) {
         'booking_id' => $booking->get_id(),
         'message' => 'Booking created successfully'
     );
-} 
+}
