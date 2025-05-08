@@ -471,10 +471,12 @@ function register_create_booking_endpoint() {
                 'required' => true,
                 'type' => 'string'
             ),
+            /* Temporarily disabled reCAPTCHA
             'recaptcha_token' => array(
                 'required' => true,
                 'type' => 'string'
             ),
+            */
             'terms_accepted' => array(
                 'required' => true,
                 'type' => 'boolean'
@@ -491,11 +493,13 @@ function create_booking($request) {
     }
 
     // Verify reCAPTCHA
+    /* Temporarily disabled reCAPTCHA
     $recaptcha_token = $request->get_param('recaptcha_token');
     $recaptcha_result = verify_recaptcha($recaptcha_token);
     if (is_wp_error($recaptcha_result)) {
         return $recaptcha_result;
     }
+    */
 
     // Verify terms acceptance
     if (!$request->get_param('terms_accepted')) {
@@ -562,7 +566,11 @@ function create_booking($request) {
 
 // Helper function to verify reCAPTCHA
 function verify_recaptcha($token) {
-    $secret_key = get_option('recaptcha_secret_key'); // Get secret key from WordPress options
+    error_log('=== reCAPTCHA Verification Debug ===');
+    error_log('Token received: ' . substr($token, 0, 50) . '...');
+    
+    $secret_key = get_option('recaptcha_secret_key');
+    error_log('Secret key from WordPress: ' . $secret_key);
     
     if (empty($secret_key)) {
         error_log('reCAPTCHA secret key is not configured');
@@ -575,6 +583,8 @@ function verify_recaptcha($token) {
         'response' => $token
     );
 
+    error_log('Sending verification request to Google...');
+    
     $options = array(
         'http' => array(
             'header' => "Content-type: application/x-www-form-urlencoded\r\n",
@@ -591,6 +601,8 @@ function verify_recaptcha($token) {
         return new WP_Error('recaptcha_verification_failed', 'Failed to verify reCAPTCHA token', array('status' => 500));
     }
 
+    error_log('Google response: ' . $response);
+    
     $result = json_decode($response);
     
     if (!$result->success) {
@@ -598,6 +610,7 @@ function verify_recaptcha($token) {
         return new WP_Error('invalid_recaptcha', 'Invalid reCAPTCHA token', array('status' => 400));
     }
 
+    error_log('reCAPTCHA verification successful');
     return true;
 }
 
@@ -608,7 +621,7 @@ function register_recaptcha_settings() {
         'description' => 'Google reCAPTCHA Site Key',
         'sanitize_callback' => 'sanitize_text_field',
         'show_in_rest' => true,
-        'default' => ''
+        'default' => '6Lez4zErAAAAAPakygMDjCAZ2yRZt-hVSKbGQNJ0'
     ));
 
     register_setting('general', 'recaptcha_secret_key', array(
@@ -616,7 +629,7 @@ function register_recaptcha_settings() {
         'description' => 'Google reCAPTCHA Secret Key',
         'sanitize_callback' => 'sanitize_text_field',
         'show_in_rest' => true,
-        'default' => ''
+        'default' => '6Lez4zErAAAAADLh3bipgwi75nB6a9_01BQg9aBI'
     ));
 
     add_settings_section(
