@@ -7,6 +7,23 @@
  * @package vansunstudio-cms
  */
 
+add_action('init', 'test_functions_loading');
+function test_functions_loading() {
+    error_log('=== Functions.php is loading ===');
+}
+
+add_action('rest_api_init', 'test_rest_api');
+function test_rest_api() {
+    error_log('=== REST API is initializing ===');
+    register_rest_route('vansun/v1', '/test', array(
+        'methods' => 'GET',
+        'callback' => function() {
+            return array('message' => 'REST API is working');
+        },
+        'permission_callback' => '__return_true'
+    ));
+}
+
 if ( ! defined( '_S_VERSION' ) ) {
 	// Replace the version number of the theme on each release.
 	define( '_S_VERSION', '1.0.0' );
@@ -671,4 +688,456 @@ function recaptcha_secret_key_callback() {
     echo '<input type="password" name="recaptcha_secret_key" value="' . esc_attr($secret_key) . '" class="regular-text">';
 }
 
-// This is a test edit to show that I can modify the file
+/**
+ * Register Custom Post Type for Consent Forms
+ */
+function register_consent_form_cpt() {
+    error_log('=== Registering Consent Form CPT ===');
+    
+    $labels = array(
+        'name'               => 'Consent Forms',
+        'singular_name'      => 'Consent Form',
+        'menu_name'          => 'Consent Forms',
+        'add_new'            => 'Add New',
+        'add_new_item'       => 'Add New Consent Form',
+        'edit_item'          => 'Edit Consent Form',
+        'new_item'           => 'New Consent Form',
+        'view_item'          => 'View Consent Form',
+        'search_items'       => 'Search Consent Forms',
+        'not_found'          => 'No consent forms found',
+        'not_found_in_trash' => 'No consent forms found in Trash'
+    );
+
+    $args = array(
+        'labels'              => $labels,
+        'public'              => true,
+        'publicly_queryable'  => true,
+        'show_ui'            => true,
+        'show_in_menu'       => true,
+        'query_var'          => true,
+        'rewrite'            => array('slug' => 'consent-forms'),
+        'capability_type'    => 'post',
+        'has_archive'        => true,
+        'hierarchical'       => false,
+        'menu_position'      => null,
+        'menu_icon'          => 'dashicons-clipboard',
+        'supports'           => array('title', 'editor', 'custom-fields'),
+        'show_in_rest'       => true,
+        'rest_base'          => 'consent-forms',
+        'rest_controller_class' => 'WP_REST_Posts_Controller'
+    );
+
+    register_post_type('consent_form', $args);
+    error_log('Consent Form CPT registered');
+}
+
+// Register CPT on init hook with priority 0
+add_action('init', 'register_consent_form_cpt', 0);
+
+// Register ACF Fields for Consent Forms
+function register_consent_form_fields() {
+    if(function_exists('acf_add_local_field_group')):
+        acf_add_local_field_group(array(
+            'key' => 'group_consent_fields',
+            'title' => 'Consent Form Fields',
+            'fields' => array(
+                array(
+                    'key' => 'field_full_name',
+                    'label' => 'Full Name',
+                    'name' => 'full_name',
+                    'type' => 'text',
+                    'required' => 1,
+                ),
+                array(
+                    'key' => 'field_email',
+                    'label' => 'Email',
+                    'name' => 'email',
+                    'type' => 'email',
+                    'required' => 1,
+                ),
+                array(
+                    'key' => 'field_phone',
+                    'label' => 'Phone',
+                    'name' => 'phone',
+                    'type' => 'text',
+                    'required' => 1,
+                ),
+                array(
+                    'key' => 'field_birthday_date',
+                    'label' => 'Birthday Date',
+                    'name' => 'birthday_date',
+                    'type' => 'date_picker',
+                    'required' => 1,
+                ),
+                array(
+                    'key' => 'field_form_type',
+                    'label' => 'Form Type',
+                    'name' => 'form_type',
+                    'type' => 'select',
+                    'choices' => array(
+                        'tattoo' => 'Tattoo',
+                        'piercing' => 'Piercing'
+                    ),
+                    'required' => 1,
+                ),
+                array(
+                    'key' => 'field_signature',
+                    'label' => 'Signature',
+                    'name' => 'signature',
+                    'type' => 'image',
+                    'return_format' => 'url',
+                    'preview_size' => 'medium',
+                    'required' => 1,
+                )
+            ),
+            'location' => array(
+                array(
+                    array(
+                        'param' => 'post_type',
+                        'operator' => '==',
+                        'value' => 'consent_form',
+                    ),
+                ),
+            ),
+            'menu_order' => 0,
+            'position' => 'normal',
+            'style' => 'default',
+            'label_placement' => 'top',
+            'instruction_placement' => 'label',
+            'hide_on_screen' => '',
+            'active' => true,
+            'description' => '',
+        ));
+    endif;
+}
+add_action('acf/init', 'register_consent_form_fields');
+
+/**
+ * Register REST API endpoints for consent form submissions
+ */
+function register_consent_form_endpoints() {
+    // Endpoint for submitting tattoo consent form
+    register_rest_route('vansun/v1', '/consent-form/tattoo', array(
+        'methods' => array('POST', 'OPTIONS'),
+        'callback' => 'handle_consent_form_submission',
+        'permission_callback' => '__return_true',
+        'args' => array(
+            'name' => array(
+                'required' => true,
+                'type' => 'string'
+            ),
+            'email' => array(
+                'required' => true,
+                'type' => 'string',
+                'format' => 'email'
+            ),
+            'phone' => array(
+                'required' => true,
+                'type' => 'string'
+            ),
+            'birthday_date' => array(
+                'required' => true,
+                'type' => 'string'
+            ),
+            'signature' => array(
+                'required' => true,
+                'type' => 'string'
+            ),
+            'recaptcha_token' => array(
+                'required' => true,
+                'type' => 'string'
+            )
+        )
+    ));
+
+    // Endpoint for submitting piercing consent form
+    register_rest_route('vansun/v1', '/consent-form/piercing', array(
+        'methods' => array('POST', 'OPTIONS'),
+        'callback' => 'handle_consent_form_submission',
+        'permission_callback' => '__return_true',
+        'args' => array(
+            'name' => array(
+                'required' => true,
+                'type' => 'string'
+            ),
+            'email' => array(
+                'required' => true,
+                'type' => 'string',
+                'format' => 'email'
+            ),
+            'phone' => array(
+                'required' => true,
+                'type' => 'string'
+            ),
+            'birthday_date' => array(
+                'required' => true,
+                'type' => 'string'
+            ),
+            'signature' => array(
+                'required' => true,
+                'type' => 'string'
+            ),
+            'recaptcha_token' => array(
+                'required' => true,
+                'type' => 'string'
+            )
+        )
+    ));
+}
+add_action('rest_api_init', 'register_consent_form_endpoints');
+
+function handle_consent_form_submission($request) {
+    error_log('=== TEST123: handle_consent_form_submission is running ===');
+    error_log('=== Starting consent form submission ===');
+    
+    $params = $request->get_params();
+    error_log('Received parameters: ' . print_r($params, true));
+    
+    try {
+        // Verify reCAPTCHA
+        $recaptcha_token = $params['recaptcha_token'];
+        error_log('Received reCAPTCHA token: ' . substr($recaptcha_token, 0, 50) . '...');
+        
+        // Hardcode reCAPTCHA keys for testing
+        $recaptcha_site_key = "6Lez4zErAAAAAPakygMDjCAZ2yRZt-hVSKbGQNJ0";
+        $recaptcha_secret_key = "6Lez4zErAAAAADLh3bipgwi75nB6a9_01BQg9aBI";
+        
+        $url = 'https://www.google.com/recaptcha/api/siteverify';
+        $data = array(
+            'secret' => $recaptcha_secret_key,
+            'response' => $recaptcha_token
+        );
+        
+        $options = array(
+            'http' => array(
+                'header' => "Content-type: application/x-www-form-urlencoded\r\n",
+                'method' => 'POST',
+                'content' => http_build_query($data)
+            )
+        );
+        
+        $context = stream_context_create($options);
+        $response = file_get_contents($url, false, $context);
+        
+        if ($response === false) {
+            error_log('Failed to verify reCAPTCHA token');
+            return new WP_Error('recaptcha_verification_failed', 'Failed to verify reCAPTCHA token', array('status' => 500));
+        }
+        
+        error_log('Google reCAPTCHA response: ' . $response);
+        
+        $result = json_decode($response);
+        
+        if (!$result->success) {
+            error_log('reCAPTCHA verification failed: ' . print_r($result->{'error-codes'}, true));
+            return new WP_Error('invalid_recaptcha', 'Invalid reCAPTCHA token', array('status' => 400));
+        }
+        
+        error_log('reCAPTCHA verification successful');
+        
+        // Create post
+        $post_data = array(
+            'post_title'    => $params['name'],
+            'post_status'   => 'publish',
+            'post_type'     => 'consent_form'
+        );
+        
+        error_log('Creating post with data: ' . print_r($post_data, true));
+        $post_id = wp_insert_post($post_data);
+        
+        if (is_wp_error($post_id)) {
+            error_log('Error creating post: ' . $post_id->get_error_message());
+            return $post_id;
+        }
+        
+        error_log('Post created successfully with ID: ' . $post_id);
+        
+        // Determine form type from URL
+        $form_type = strpos($_SERVER['REQUEST_URI'], 'tattoo') !== false ? 'tattoo' : 'piercing';
+        error_log('Form type determined as: ' . $form_type);
+        
+        // Handle signature if provided
+        if (!empty($params['signature'])) {
+            error_log('Processing signature...');
+            $signature_data = $params['signature'];
+            error_log('Signature data: ' . substr($signature_data, 0, 100));
+            $signature_url = '';
+            if (preg_match('/^data:image\/(png|jpeg|jpg);base64,/', $signature_data)) {
+                // It's base64, decode and upload
+                $img_data = preg_replace('/^data:image\/(png|jpeg|jpg);base64,/', '', $signature_data);
+                $img_data = base64_decode($img_data);
+                $filename = 'signature_' . time() . '.png';
+                $upload_file = wp_upload_bits($filename, null, $img_data);
+                if (!$upload_file['error']) {
+                    $wp_filetype = wp_check_filetype($filename, null);
+                    $attachment = array(
+                        'post_mime_type' => $wp_filetype['type'],
+                        'post_title' => sanitize_file_name($filename),
+                        'post_content' => '',
+                        'post_status' => 'inherit'
+                    );
+                    $attach_id = wp_insert_attachment($attachment, $upload_file['file']);
+                    require_once(ABSPATH . 'wp-admin/includes/image.php');
+                    $attach_data = wp_generate_attachment_metadata($attach_id, $upload_file['file']);
+                    wp_update_attachment_metadata($attach_id, $attach_data);
+                    $signature_url = $attach_id; // Store the attachment ID instead of URL
+                    error_log('Signature uploaded and ID: ' . $signature_url);
+                } else {
+                    error_log('Signature upload error: ' . $upload_file['error']);
+                }
+            } elseif (filter_var($signature_data, FILTER_VALIDATE_URL)) {
+                // If it's a URL, try to get the attachment ID
+                $attachment_id = attachment_url_to_postid($signature_data);
+                if ($attachment_id) {
+                    $signature_url = $attachment_id;
+                } else {
+                    $signature_url = $signature_data;
+                }
+                error_log('Signature is a valid URL/ID');
+            }
+            
+            // Save to ACF
+            if(function_exists('update_field')) {
+                update_field('signature', $signature_url, $post_id);
+            }
+        } else {
+            error_log('No signature provided');
+            if(function_exists('update_field')) {
+                update_field('signature', '', $post_id);
+            }
+        }
+        
+        // Update other fields using ACF
+        if(function_exists('update_field')) {
+            update_field('full_name', $params['name'], $post_id);
+            update_field('email', $params['email'], $post_id);
+            update_field('phone', $params['phone'], $post_id);
+            update_field('birthday_date', $params['birthday_date'], $post_id);
+            update_field('form_type', $form_type, $post_id);
+        }
+        
+        error_log('=== Consent form submission completed successfully ===');
+        return array(
+            'success' => true,
+            'message' => 'Consent form submitted successfully',
+            'post_id' => $post_id
+        );
+        
+    } catch (Exception $e) {
+        error_log('Error in consent form submission: ' . $e->getMessage());
+        return new WP_Error('submission_error', $e->getMessage(), array('status' => 500));
+    }
+}
+
+/**
+ * Add custom columns to consent form list
+ */
+function add_consent_form_columns($columns) {
+    $new_columns = array();
+    foreach ($columns as $key => $value) {
+        if ($key === 'title') {
+            $new_columns[$key] = $value;
+            $new_columns['full_name'] = 'Name';
+            $new_columns['email'] = 'Email';
+            $new_columns['phone'] = 'Phone';
+            $new_columns['birthday_date'] = 'Birthday';
+            $new_columns['form_type'] = 'Type';
+            $new_columns['signature'] = 'Signature';
+        } else {
+            $new_columns[$key] = $value;
+        }
+    }
+    return $new_columns;
+}
+add_filter('manage_consent_form_posts_columns', 'add_consent_form_columns');
+
+/**
+ * Fill custom columns with data
+ */
+function fill_consent_form_columns($column, $post_id) {
+    switch ($column) {
+        case 'full_name':
+            if(function_exists('get_field')) {
+                echo get_field('full_name', $post_id) ?: '';
+            }
+            break;
+        case 'email':
+            if(function_exists('get_field')) {
+                echo get_field('email', $post_id) ?: '';
+            }
+            break;
+        case 'phone':
+            if(function_exists('get_field')) {
+                echo get_field('phone', $post_id) ?: '';
+            }
+            break;
+        case 'birthday_date':
+            if(function_exists('get_field')) {
+                echo get_field('birthday_date', $post_id) ?: '';
+            }
+            break;
+        case 'form_type':
+            if(function_exists('get_field')) {
+                $type = get_field('form_type', $post_id);
+                echo ucfirst($type) ?: '';
+            }
+            break;
+        case 'signature':
+            if(function_exists('get_field')) {
+                $signature = get_field('signature', $post_id);
+                if ($signature) {
+                    if (is_numeric($signature)) {
+                        // It's an attachment ID
+                        $image_url = wp_get_attachment_url($signature);
+                        if ($image_url) {
+                            echo '<img src="' . esc_url($image_url) . '" alt="Signature" style="max-width: 100px; height: auto;">';
+                        }
+                    } elseif (filter_var($signature, FILTER_VALIDATE_URL)) {
+                        // It's a URL
+                        echo '<img src="' . esc_url($signature) . '" alt="Signature" style="max-width: 100px; height: auto;">';
+                    }
+                }
+            }
+            break;
+    }
+}
+add_action('manage_consent_form_posts_custom_column', 'fill_consent_form_columns', 10, 2);
+
+/**
+ * Make columns sortable
+ */
+function make_consent_form_columns_sortable($columns) {
+    $columns['form_type'] = 'form_type';
+    return $columns;
+}
+add_filter('manage_edit-consent_form_sortable_columns', 'make_consent_form_columns_sortable');
+
+/**
+ * Add filter dropdown for consent type
+ */
+function add_consent_type_filter() {
+    global $typenow;
+    if ($typenow === 'consent_form') {
+        $current_type = isset($_GET['form_type']) ? $_GET['form_type'] : '';
+        ?>
+        <select name="form_type">
+            <option value="">All Types</option>
+            <option value="tattoo" <?php selected($current_type, 'tattoo'); ?>>Tattoo</option>
+            <option value="piercing" <?php selected($current_type, 'piercing'); ?>>Piercing</option>
+        </select>
+        <?php
+    }
+}
+add_action('restrict_manage_posts', 'add_consent_type_filter');
+
+/**
+ * Filter posts by consent type
+ */
+function filter_consent_forms_by_type($query) {
+    global $pagenow;
+    if (is_admin() && $pagenow === 'edit.php' && isset($_GET['post_type']) && $_GET['post_type'] === 'consent_form' && isset($_GET['form_type']) && !empty($_GET['form_type'])) {
+        $query->query_vars['meta_key'] = 'form_type';
+        $query->query_vars['meta_value'] = $_GET['form_type'];
+    }
+}
+add_action('pre_get_posts', 'filter_consent_forms_by_type'); 
