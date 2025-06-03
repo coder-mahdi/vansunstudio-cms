@@ -340,6 +340,37 @@ function register_booking_acf_fields() {
                     'type' => 'date_time_picker',
                     'required' => 0,
                 ),
+                array(
+                    'key' => 'field_design',
+                    'label' => 'Design',
+                    'name' => 'design',
+                    'type' => 'image',
+                    'return_format' => 'url',
+                    'preview_size' => 'medium',
+                    'required' => 0,
+                    'instructions' => 'Upload design image',
+                    'library' => 'all'
+                ),
+                array(
+                    'key' => 'field_explanation',
+                    'label' => 'Explanation',
+                    'name' => 'explanation',
+                    'type' => 'textarea',
+                    'required' => 0,
+                    'instructions' => 'Enter explanation text',
+                    'rows' => 4,
+                    'new_lines' => 'br',
+                    'wrapper' => array(
+                        'width' => '',
+                        'class' => '',
+                        'id' => '',
+                    ),
+                    'default_value' => '',
+                    'placeholder' => '',
+                    'maxlength' => '',
+                    'readonly' => 0,
+                    'disabled' => 0,
+                ),
             ),
             'location' => array(
                 array(
@@ -350,11 +381,31 @@ function register_booking_acf_fields() {
                     ),
                 ),
             ),
+            'menu_order' => 0,
+            'position' => 'normal',
+            'style' => 'default',
+            'label_placement' => 'top',
+            'instruction_placement' => 'label',
+            'hide_on_screen' => '',
+            'active' => true,
+            'description' => '',
+            'show_in_rest' => true,
         ));
 
     endif;
 }
 add_action('acf/init', 'register_booking_acf_fields');
+
+// Add debug function to check ACF fields
+function debug_acf_fields($post_id) {
+    error_log('=== Debug ACF Fields ===');
+    error_log('Post ID: ' . $post_id);
+    if(function_exists('get_field')) {
+        $explanation = get_field('explanation', $post_id);
+        error_log('Explanation field value: ' . print_r($explanation, true));
+    }
+}
+add_action('acf/save_post', 'debug_acf_fields', 20);
 
 // Register endpoint for getting booking availability
 function register_booking_availability_endpoint() {
@@ -497,6 +548,14 @@ function register_create_booking_endpoint() {
             'terms_accepted' => array(
                 'required' => true,
                 'type' => 'boolean'
+            ),
+            'design' => array(
+                'required' => false,
+                'type' => 'string'
+            ),
+            'explanation' => array(
+                'required' => false,
+                'type' => 'string'
             )
         )
     ));
@@ -565,6 +624,60 @@ function create_booking($request) {
             update_field('booking_status', 'confirmed', $post_id);
             update_field('terms_accepted', true, $post_id);
             update_field('terms_accepted_date', current_time('mysql'), $post_id);
+            
+            // Save design and explanation if provided
+            if ($request->get_param('design')) {
+                $design_data = $request->get_param('design');
+                if (preg_match('/^data:image\/(png|jpeg|jpg);base64,/', $design_data)) {
+                    // It's base64, decode and upload
+                    $img_data = preg_replace('/^data:image\/(png|jpeg|jpg);base64,/', '', $design_data);
+                    $img_data = base64_decode($img_data);
+                    $filename = 'design_' . time() . '.png';
+                    $upload_file = wp_upload_bits($filename, null, $img_data);
+                    if (!$upload_file['error']) {
+                        $wp_filetype = wp_check_filetype($filename, null);
+                        $attachment = array(
+                            'post_mime_type' => $wp_filetype['type'],
+                            'post_title' => sanitize_file_name($filename),
+                            'post_content' => '',
+                            'post_status' => 'inherit'
+                        );
+                        $attach_id = wp_insert_attachment($attachment, $upload_file['file']);
+                        require_once(ABSPATH . 'wp-admin/includes/image.php');
+                        $attach_data = wp_generate_attachment_metadata($attach_id, $upload_file['file']);
+                        wp_update_attachment_metadata($attach_id, $attach_data);
+                        update_field('design', $attach_id, $post_id);
+                    }
+                } else {
+                    update_field('design', $design_data, $post_id);
+                }
+            }
+            
+            if ($request->get_param('explanation')) {
+                $explanation = $request->get_param('explanation');
+                error_log('=== Saving Explanation ===');
+                error_log('Raw explanation: ' . $explanation);
+                error_log('Post ID: ' . $post_id);
+                
+                // Save directly to post meta
+                $meta_result = update_post_meta($post_id, 'explanation', $explanation);
+                error_log('Post meta update result: ' . ($meta_result ? 'true' : 'false'));
+                
+                // Also try ACF if available
+                if(function_exists('update_field')) {
+                    $acf_result = update_field('explanation', $explanation, $post_id);
+                    error_log('ACF update result: ' . ($acf_result ? 'true' : 'false'));
+                }
+                
+                // Verify the value was saved
+                $saved_value = get_post_meta($post_id, 'explanation', true);
+                error_log('Saved value from post meta: ' . $saved_value);
+                
+                if(function_exists('get_field')) {
+                    $acf_value = get_field('explanation', $post_id);
+                    error_log('Saved value from ACF: ' . $acf_value);
+                }
+            }
 
             return array(
                 'success' => true,
@@ -1140,4 +1253,94 @@ function filter_consent_forms_by_type($query) {
         $query->query_vars['meta_value'] = $_GET['form_type'];
     }
 }
-add_action('pre_get_posts', 'filter_consent_forms_by_type'); 
+add_action('pre_get_posts', 'filter_consent_forms_by_type');
+
+// اضافه کردن ستون‌های سفارشی به لیست بوکینگ‌ها
+function add_booking_columns($columns) {
+    $new_columns = array();
+    foreach ($columns as $key => $value) {
+        if ($key === 'title') {
+            $new_columns[$key] = $value;
+            $new_columns['full_name'] = 'Name';
+            $new_columns['phone'] = 'Phone';
+            $new_columns['email'] = 'Email';
+            $new_columns['booking_date'] = 'Booking Date';
+            $new_columns['booking_time'] = 'Booking Time';
+        } else {
+            $new_columns[$key] = $value;
+        }
+    }
+    return $new_columns;
+}
+add_filter('manage_booking_posts_columns', 'add_booking_columns');
+
+// پر کردن داده‌های ستون‌های سفارشی
+function fill_booking_columns($column, $post_id) {
+    switch ($column) {
+        case 'full_name':
+            if(function_exists('get_field')) {
+                echo get_field('full_name', $post_id) ?: '';
+            }
+            break;
+        case 'phone':
+            if(function_exists('get_field')) {
+                echo get_field('phone', $post_id) ?: '';
+            }
+            break;
+        case 'email':
+            if(function_exists('get_field')) {
+                echo get_field('email', $post_id) ?: '';
+            }
+            break;
+        case 'booking_date':
+            if(function_exists('get_field')) {
+                echo get_field('booking_date', $post_id) ?: '';
+            }
+            break;
+        case 'booking_time':
+            if(function_exists('get_field')) {
+                echo get_field('booking_time', $post_id) ?: '';
+            }
+            break;
+    }
+}
+add_action('manage_booking_posts_custom_column', 'fill_booking_columns', 10, 2);
+
+// قابل مرتب‌سازی کردن ستون‌ها
+function make_booking_columns_sortable($columns) {
+    $columns['full_name'] = 'full_name';
+    $columns['booking_date'] = 'booking_date';
+    $columns['booking_time'] = 'booking_time';
+    return $columns;
+}
+add_filter('manage_edit-booking_sortable_columns', 'make_booking_columns_sortable');
+
+// Add explanation to booking details
+function add_explanation_to_booking_details($post) {
+    if ($post->post_type !== 'booking') {
+        return;
+    }
+    
+    error_log('=== Displaying Explanation ===');
+    error_log('Post ID: ' . $post->ID);
+    
+    // Try to get explanation from post meta
+    $explanation = get_post_meta($post->ID, 'explanation', true);
+    error_log('Explanation from post meta: ' . $explanation);
+    
+    // If empty, try ACF
+    if (empty($explanation) && function_exists('get_field')) {
+        $explanation = get_field('explanation', $post->ID);
+        error_log('Explanation from ACF: ' . $explanation);
+    }
+    
+    if (!empty($explanation)) {
+        echo '<div class="explanation-section" style="margin: 20px 0; padding: 15px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">';
+        echo '<h3 style="margin-top: 0;">Explanation</h3>';
+        echo '<div class="explanation-content" style="white-space: pre-wrap;">' . esc_html($explanation) . '</div>';
+        echo '</div>';
+    } else {
+        error_log('No explanation found for post ID: ' . $post->ID);
+    }
+}
+add_action('edit_form_after_title', 'add_explanation_to_booking_details'); 
