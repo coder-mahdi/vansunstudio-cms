@@ -1306,7 +1306,7 @@ function fill_booking_columns($column, $post_id) {
 }
 add_action('manage_booking_posts_custom_column', 'fill_booking_columns', 10, 2);
 
-// قابل مرتب‌سازی کردن ستون‌ها
+
 function make_booking_columns_sortable($columns) {
     $columns['full_name'] = 'full_name';
     $columns['booking_date'] = 'booking_date';
@@ -1344,3 +1344,44 @@ function add_explanation_to_booking_details($post) {
     }
 }
 add_action('edit_form_after_title', 'add_explanation_to_booking_details'); 
+
+// Send email notification for new bookings
+add_action('wp_insert_post', 'send_booking_notification_email', 10, 3);
+function send_booking_notification_email($post_id, $post, $update) {
+    // Only for new bookings
+    if ($post->post_type === 'booking' && !$update) {
+        
+        // Get booking information
+        $full_name = get_field('full_name', $post_id);
+        $email = get_field('email', $post_id);
+        $phone = get_field('phone', $post_id);
+        $booking_date = get_field('booking_date', $post_id);
+        $booking_time = get_field('booking_time', $post_id);
+        $explanation = get_field('explanation', $post_id);
+        
+        // Your email
+        $to = 'masiworld93@gmail.com'; // Replace with your email
+        
+        $subject = 'New Booking - ' . $full_name;
+        
+        $message = "
+        New booking received:
+        
+        Name: {$full_name}
+        Email: {$email}
+        Phone: {$phone}
+        Date: {$booking_date}
+        Time: {$booking_time}
+        " . (!empty($explanation) ? "Explanation: {$explanation}" : "") . "
+        
+        Check admin panel for details.
+        ";
+        
+        $headers = array(
+            'From: ' . get_bloginfo('name') . ' <noreply@' . $_SERVER['HTTP_HOST'] . '>'
+        );
+        
+        // Send email
+        wp_mail($to, $subject, $message, $headers);
+    }
+} 
