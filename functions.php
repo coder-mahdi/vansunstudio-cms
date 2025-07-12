@@ -679,6 +679,17 @@ function create_booking($request) {
                 }
             }
 
+            // Send email notification
+            send_booking_notification_email(
+                $post_id,
+                $request->get_param('full_name'),
+                $request->get_param('email'),
+                $request->get_param('phone'),
+                $request->get_param('booking_date'),
+                $request->get_param('booking_time'),
+                $request->get_param('explanation')
+            );
+
             return array(
                 'success' => true,
                 'booking_id' => $booking->get_id(),
@@ -1346,42 +1357,30 @@ function add_explanation_to_booking_details($post) {
 add_action('edit_form_after_title', 'add_explanation_to_booking_details'); 
 
 // Send email notification for new bookings
-add_action('wp_insert_post', 'send_booking_notification_email', 10, 3);
-function send_booking_notification_email($post_id, $post, $update) {
-    // Only for new bookings
-    if ($post->post_type === 'booking' && !$update) {
-        
-        // Get booking information
-        $full_name = get_field('full_name', $post_id);
-        $email = get_field('email', $post_id);
-        $phone = get_field('phone', $post_id);
-        $booking_date = get_field('booking_date', $post_id);
-        $booking_time = get_field('booking_time', $post_id);
-        $explanation = get_field('explanation', $post_id);
-        
-        // Your email
-        $to = 'masiworld93@gmail.com'; // Replace with your email
-        
-        $subject = 'New Booking - ' . $full_name;
-        
-        $message = "
-        New booking received:
-        
-        Name: {$full_name}
-        Email: {$email}
-        Phone: {$phone}
-        Date: {$booking_date}
-        Time: {$booking_time}
-        " . (!empty($explanation) ? "Explanation: {$explanation}" : "") . "
-        
-        Check admin panel for details.
-        ";
-        
-        $headers = array(
-            'From: ' . get_bloginfo('name') . ' <noreply@' . $_SERVER['HTTP_HOST'] . '>'
-        );
-        
-        // Send email
-        wp_mail($to, $subject, $message, $headers);
-    }
+function send_booking_notification_email($post_id, $full_name, $email, $phone, $booking_date, $booking_time, $explanation = '') {
+    
+    // Your email
+    $to = 'masiworld93@gmail.com'; // Replace with your email
+    
+    $subject = 'New Booking - ' . $full_name;
+    
+    $message = "
+    New booking received:
+    
+    Name: {$full_name}
+    Email: {$email}
+    Phone: {$phone}
+    Date: {$booking_date}
+    Time: {$booking_time}
+    " . (!empty($explanation) ? "Explanation: {$explanation}" : "") . "
+    
+    Check admin panel for details.
+    ";
+    
+    $headers = array(
+        'From: ' . get_bloginfo('name') . ' <noreply@' . $_SERVER['HTTP_HOST'] . '>'
+    );
+    
+    // Send email
+    wp_mail($to, $subject, $message, $headers);
 } 
