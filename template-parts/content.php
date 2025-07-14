@@ -48,6 +48,12 @@
 			)
 		);
 
+		if (get_field('blog_content')) :
+			echo '<div class="acf-blog-body">';
+			echo apply_filters('the_content', get_field('Blog Post'));
+			echo '</div>';
+		  endif;
+
 		wp_link_pages(
 			array(
 				'before' => '<div class="page-links">' . esc_html__( 'Pages:', 'vansunstudio-cms' ),
