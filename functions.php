@@ -1384,3 +1384,18 @@ function send_booking_notification_email($post_id, $full_name, $email, $phone, $
     // Send email
     wp_mail($to, $subject, $message, $headers);
 } 
+
+// Add 'tags' field to WordPress REST API response for posts
+function add_tags_to_rest_api() {
+    register_rest_field(
+        'post',
+        'tags',
+        array(
+            'get_callback' => function( $post_arr ) {
+                return wp_get_post_tags( $post_arr['id'], array( 'fields' => 'ids' ) );
+            },
+            'schema' => null,
+        )
+    );
+}
+add_action('rest_api_init', 'add_tags_to_rest_api');
