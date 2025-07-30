@@ -1399,3 +1399,44 @@ function add_tags_to_rest_api() {
     );
 }
 add_action('rest_api_init', 'add_tags_to_rest_api');
+
+// Add Custom Post Type for Sales_report        
+
+function register_sales_report_cpt() {
+    $labels = array(
+        'name' => 'Sales Report',
+        'singular_name' => 'Sales Report',
+        'menu_name' => 'Sales Report',
+        'all_items' => 'All Sales Report',
+        'add_new' => 'Add New',
+        'add_new_item' => 'Add New Sales Report',
+        'edit_item' => 'Edit Sales Report',
+        'new_item' => 'New Sales Report',
+        'view_item' => 'View Sales Report',
+        'search_items' => 'Search Sales Report',
+        'not_found' => 'No sales report found',
+        'not_found_in_trash' => 'No sales report found in trash',
+        'parent_item_colon' => 'Parent Sales Report:',
+        'menu_name' => 'Sales Report',
+    );
+    $args = array(
+        'label' => 'Sales Report',
+        'labels' => $labels,
+        'public' => false,
+        'publicly_queryable' => true,
+        'show_ui' => true,
+        'show_in_menu' => true,
+        'query_var' => true,
+        'rewrite' => array('slug' => 'sales-report'),
+        'capability_type' => 'post',
+        'has_archive' => true,
+        'supports' => array('title', 'editor', 'author', 'thumbnail', 'excerpt', 'comments', 'revisions', 'custom-fields'),
+        'menu_icon' => 'dashicons-chart-bar',
+        'show_in_rest' => true,
+        'capability_type' => 'post',
+        'rest_base' => 'sales-report',
+        'rest_controller_class' => 'WP_REST_Posts_Controller',
+    );
+    register_post_type('sales_report', $args);
+}
+add_action('init', 'register_sales_report_cpt');
