@@ -193,15 +193,21 @@ if ( defined( 'JETPACK__VERSION' ) ) {
 	require get_template_directory() . '/inc/jetpack.php';
 }
 
-// Add CORS headers for React frontend
-// Add CORS headers for React frontend
+// Add CORS headers for REST API
 add_action('rest_api_init', function() {
     remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
     add_filter('rest_pre_serve_request', function($value) {
         header('Access-Control-Allow-Origin: *');
         header('Access-Control-Allow-Methods: POST, GET, OPTIONS, PUT, DELETE');
         header('Access-Control-Allow-Credentials: true');
-        header('Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept');
+        header('Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        
+        // Handle preflight OPTIONS request
+        if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+            status_header(200);
+            exit();
+        }
+        
         return $value;
     });
 }, 15);
@@ -1448,247 +1454,85 @@ function create_staff_user_post_type() {
             'name' => 'Staff Users',
             'singular_name' => 'Staff User'
         ],
-        'public' => false,
+        'public' => true,
         'show_ui' => true,
-        'supports' => ['title', 'custom-fields']
+        'show_in_rest' => true,
+        'supports' => ['title', 'custom-fields'],
+        'capability_type' => 'post',
+        'map_meta_cap' => true,
+        'rest_base' => 'staff_user',
+        'rest_controller_class' => 'WP_REST_Posts_Controller'
     ]);
 }
 add_action('init', 'create_staff_user_post_type');
 
-// Staff Users REST API Endpoints
-function register_staff_users_rest_routes() {
-    // Get all staff users
-    register_rest_route('vansun/v1', '/staff-users', [
+// Allow unauthenticated access to staff_user REST API
+add_filter('rest_staff_user_collection_params', function($params, $post_type) {
+    return $params;
+}, 10, 2);
+
+add_filter('rest_staff_user_query', function($args, $request) {
+    return $args;
+}, 10, 2);
+
+// Allow creating staff_user without authentication
+add_filter('rest_pre_insert_staff_user', function($prepared, $request) {
+    return $prepared;
+}, 10, 2);
+
+// Disable authentication for staff_user REST API
+add_filter('rest_authentication_errors', function($result) {
+    if (!empty($result)) {
+        return $result;
+    }
+    
+    // Allow unauthenticated access to staff_user endpoints
+    if (strpos($_SERVER['REQUEST_URI'], '/wp-json/wp/v2/staff_user') !== false) {
+        return true;
+    }
+    
+    return $result;
+});
+
+// Force register staff_user in REST API
+add_action('rest_api_init', function() {
+    register_rest_route('wp/v2', '/staff_user', array(
         'methods' => 'GET',
-        'callback' => 'get_staff_users_api',
-        'permission_callback' => function() {
-            return current_user_can('manage_options');
-        }
-    ]);
-    
-    // Create new staff user
-    register_rest_route('vansun/v1', '/staff-users', [
-        'methods' => 'POST',
-        'callback' => 'create_staff_user_api',
-        'permission_callback' => function() {
-            return current_user_can('manage_options');
-        }
-    ]);
-    
-    // Update staff user
-    register_rest_route('vansun/v1', '/staff-users/(?P<id>\d+)', [
-        'methods' => 'PUT',
-        'callback' => 'update_staff_user_api',
-        'permission_callback' => function() {
-            return current_user_can('manage_options');
-        }
-    ]);
-    
-    // Delete staff user
-    register_rest_route('vansun/v1', '/staff-users/(?P<id>\d+)', [
-        'methods' => 'DELETE',
-        'callback' => 'delete_staff_user_api',
-        'permission_callback' => function() {
-            return current_user_can('manage_options');
-        }
-    ]);
-    
-    // Validate staff login
-    register_rest_route('vansun/v1', '/staff-login', [
-        'methods' => 'POST',
-        'callback' => 'validate_staff_login_api',
+        'callback' => function($request) {
+            $posts = get_posts(array(
+                'post_type' => 'staff_user',
+                'post_status' => 'publish',
+                'numberposts' => -1
+            ));
+            
+            $data = array();
+            foreach ($posts as $post) {
+                // Get custom fields
+                $username = get_post_meta($post->ID, 'username', true);
+                $password = get_post_meta($post->ID, 'password', true);
+                $full_name = get_post_meta($post->ID, 'full_name', true);
+                $email = get_post_meta($post->ID, 'email', true);
+                $role = get_post_meta($post->ID, 'role', true);
+                $is_active = get_post_meta($post->ID, 'is_active', true);
+                
+                $data[] = array(
+                    'id' => $post->ID,
+                    'title' => $post->post_title,
+                    'content' => $post->post_content,
+                    'date' => $post->post_date,
+                    'modified' => $post->post_modified,
+                    'username' => $username,
+                    'password' => $password,
+                    'full_name' => $full_name,
+                    'email' => $email,
+                    'role' => $role,
+                    'is_active' => $is_active
+                );
+            }
+            
+            return $data;
+        },
         'permission_callback' => '__return_true'
-    ]);
-}
-add_action('rest_api_init', 'register_staff_users_rest_routes');
-
-// Get all staff users API
-function get_staff_users_api($request) {
-    $args = [
-        'post_type' => 'staff_user',
-        'post_status' => 'publish',
-        'posts_per_page' => -1
-    ];
-    
-    $posts = get_posts($args);
-    $users = [];
-    
-    foreach ($posts as $post) {
-        $users[] = [
-            'id' => $post->ID,
-            'username' => get_field('username', $post->ID),
-            'fullName' => get_field('full_name', $post->ID),
-            'email' => get_field('email', $post->ID),
-            'role' => get_field('role', $post->ID),
-            'isActive' => get_field('is_active', $post->ID),
-            'createdAt' => $post->post_date
-        ];
-    }
-    
-    return new WP_REST_Response($users, 200);
-}
-
-// Create staff user API
-function create_staff_user_api($request) {
-    $params = $request->get_params();
-    
-    // Validate required fields
-    if (empty($params['username']) || empty($params['password'])) {
-        return new WP_Error('missing_fields', 'Username and password are required', ['status' => 400]);
-    }
-    
-    // Check if username already exists
-    $existing_user = get_posts([
-        'post_type' => 'staff_user',
-        'meta_query' => [
-            [
-                'key' => 'username',
-                'value' => $params['username'],
-                'compare' => '='
-            ]
-        ]
-    ]);
-    
-    if (!empty($existing_user)) {
-        return new WP_Error('username_exists', 'Username already exists', ['status' => 400]);
-    }
-    
-    // Create post
-    $post_data = [
-        'post_title' => $params['username'],
-        'post_type' => 'staff_user',
-        'post_status' => 'publish'
-    ];
-    
-    $post_id = wp_insert_post($post_data);
-    
-    if (is_wp_error($post_id)) {
-        return new WP_Error('create_failed', 'Failed to create user', ['status' => 500]);
-    }
-    
-    // Save ACF fields
-    update_field('username', $params['username'], $post_id);
-    update_field('password', wp_hash_password($params['password']), $post_id);
-    update_field('full_name', $params['fullName'] ?? '', $post_id);
-    update_field('email', $params['email'] ?? '', $post_id);
-    update_field('role', $params['role'] ?? 'Staff', $post_id);
-    update_field('is_active', $params['isActive'] ?? true, $post_id);
-    
-    return new WP_REST_Response([
-        'id' => $post_id,
-        'username' => $params['username'],
-        'fullName' => $params['fullName'] ?? '',
-        'email' => $params['email'] ?? '',
-        'role' => $params['role'] ?? 'Staff',
-        'isActive' => $params['isActive'] ?? true,
-        'createdAt' => get_the_date('c', $post_id)
-    ], 201);
-}
-
-// Update staff user API
-function update_staff_user_api($request) {
-    $user_id = $request['id'];
-    $params = $request->get_params();
-    
-    $post = get_post($user_id);
-    if (!$post || $post->post_type !== 'staff_user') {
-        return new WP_Error('user_not_found', 'User not found', ['status' => 404]);
-    }
-    
-    // Update ACF fields
-    if (isset($params['username'])) {
-        update_field('username', $params['username'], $user_id);
-    }
-    if (isset($params['password']) && !empty($params['password'])) {
-        update_field('password', wp_hash_password($params['password']), $user_id);
-    }
-    if (isset($params['fullName'])) {
-        update_field('full_name', $params['fullName'], $user_id);
-    }
-    if (isset($params['email'])) {
-        update_field('email', $params['email'], $user_id);
-    }
-    if (isset($params['role'])) {
-        update_field('role', $params['role'], $user_id);
-    }
-    if (isset($params['isActive'])) {
-        update_field('is_active', $params['isActive'], $user_id);
-    }
-    
-    return new WP_REST_Response([
-        'id' => $user_id,
-        'username' => get_field('username', $user_id),
-        'fullName' => get_field('full_name', $user_id),
-        'email' => get_field('email', $user_id),
-        'role' => get_field('role', $user_id),
-        'isActive' => get_field('is_active', $user_id),
-        'updatedAt' => get_the_modified_date('c', $user_id)
-    ], 200);
-}
-
-// Delete staff user API
-function delete_staff_user_api($request) {
-    $user_id = $request['id'];
-    
-    $post = get_post($user_id);
-    if (!$post || $post->post_type !== 'staff_user') {
-        return new WP_Error('user_not_found', 'User not found', ['status' => 404]);
-    }
-    
-    $result = wp_delete_post($user_id, true);
-    
-    if (!$result) {
-        return new WP_Error('delete_failed', 'Failed to delete user', ['status' => 500]);
-    }
-    
-    return new WP_REST_Response(['message' => 'User deleted successfully'], 200);
-}
-
-// Validate staff login API
-function validate_staff_login_api($request) {
-    $params = $request->get_params();
-    
-    if (empty($params['username']) || empty($params['password'])) {
-        return new WP_Error('missing_credentials', 'Username and password are required', ['status' => 400]);
-    }
-    
-    // Find user by username
-    $users = get_posts([
-        'post_type' => 'staff_user',
-        'meta_query' => [
-            [
-                'key' => 'username',
-                'value' => $params['username'],
-                'compare' => '='
-            ]
-        ]
-    ]);
-    
-    if (empty($users)) {
-        return new WP_Error('invalid_credentials', 'Invalid username or password', ['status' => 401]);
-    }
-    
-    $user = $users[0];
-    $stored_password = get_field('password', $user->ID);
-    $is_active = get_field('is_active', $user->ID);
-    
-    if (!$is_active) {
-        return new WP_Error('inactive_user', 'User account is inactive', ['status' => 401]);
-    }
-    
-    if (!wp_check_password($params['password'], $stored_password)) {
-        return new WP_Error('invalid_credentials', 'Invalid username or password', ['status' => 401]);
-    }
-    
-    return new WP_REST_Response([
-        'success' => true,
-        'user' => [
-            'id' => $user->ID,
-            'username' => get_field('username', $user->ID),
-            'fullName' => get_field('full_name', $user->ID),
-            'email' => get_field('email', $user->ID),
-            'role' => get_field('role', $user->ID)
-        ]
-    ], 200);
-}
+    ));
+});
 
