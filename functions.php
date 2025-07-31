@@ -1440,3 +1440,17 @@ function register_sales_report_cpt() {
     register_post_type('sales_report', $args);
 }
 add_action('init', 'register_sales_report_cpt');
+
+// cpt staff user
+function create_staff_user_post_type() {
+    register_post_type('staff_user', [
+        'labels' => [
+            'name' => 'Staff Users',
+            'singular_name' => 'Staff User'
+        ],
+        'public' => false,
+        'show_ui' => true,
+        'supports' => ['title', 'custom-fields']
+    ]);
+}
+add_action('init', 'create_staff_user_post_type');
