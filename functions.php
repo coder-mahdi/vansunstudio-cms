@@ -1692,30 +1692,3 @@ function validate_staff_login_api($request) {
     ], 200);
 }
 
-// Create Staff User Custom Post Type
-function create_staff_user_post_type() {
-    register_post_type('staff_user', [
-        'labels' => [
-            'name' => 'Staff Users',
-            'singular_name' => 'Staff User',
-            'add_new' => 'Add New Staff',
-            'add_new_item' => 'Add New Staff User',
-            'edit_item' => 'Edit Staff User',
-            'new_item' => 'New Staff User',
-            'view_item' => 'View Staff User',
-            'search_items' => 'Search Staff Users',
-            'not_found' => 'No staff users found',
-            'not_found_in_trash' => 'No staff users found in trash'
-        ],
-        'public' => false,
-        'show_ui' => true,
-        'show_in_menu' => true,
-        'capability_type' => 'post',
-        'hierarchical' => false,
-        'rewrite' => false,
-        'supports' => ['title', 'custom-fields'],
-        'menu_icon' => 'dashicons-groups',
-        'menu_position' => 25
-    ]);
-}
-add_action('init', 'create_staff_user_post_type');
