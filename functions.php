@@ -1272,7 +1272,7 @@ function filter_consent_forms_by_type($query) {
 }
 add_action('pre_get_posts', 'filter_consent_forms_by_type');
 
-// اضافه کردن ستون‌های سفارشی به لیست بوکینگ‌ها
+
 function add_booking_columns($columns) {
     $new_columns = array();
     foreach ($columns as $key => $value) {
@@ -1291,7 +1291,7 @@ function add_booking_columns($columns) {
 }
 add_filter('manage_booking_posts_columns', 'add_booking_columns');
 
-// پر کردن داده‌های ستون‌های سفارشی
+
 function fill_booking_columns($column, $post_id) {
     switch ($column) {
         case 'full_name':
@@ -1365,8 +1365,8 @@ add_action('edit_form_after_title', 'add_explanation_to_booking_details');
 // Send email notification for new bookings
 function send_booking_notification_email($post_id, $full_name, $email, $phone, $booking_date, $booking_time, $explanation = '') {
     
-    // Your email
-    $to = 'masiworld93@gmail.com'; // Replace with your email
+    // Admin email address
+    $to = 'masiworld93@gmail.com'; // Replace with admin email
     
     $subject = 'New Booking - ' . $full_name;
     
@@ -1387,7 +1387,7 @@ function send_booking_notification_email($post_id, $full_name, $email, $phone, $
         'From: ' . get_bloginfo('name') . ' <noreply@' . $_SERVER['HTTP_HOST'] . '>'
     );
     
-    // Send email
+    // Send notification email
     wp_mail($to, $subject, $message, $headers);
 } 
 
@@ -1406,7 +1406,11 @@ function add_tags_to_rest_api() {
 }
 add_action('rest_api_init', 'add_tags_to_rest_api');
 
-// Add Custom Post Type for Sales_report        
+
+
+
+
+// Register Custom Post Type for Sales Report        
 
 function register_sales_report_cpt() {
     $labels = array(
@@ -1447,7 +1451,7 @@ function register_sales_report_cpt() {
 }
 add_action('init', 'register_sales_report_cpt');
 
-// cpt staff user
+// Register Custom Post Type for Staff User
 function create_staff_user_post_type() {
     register_post_type('staff_user', [
         'labels' => [
@@ -1536,3 +1540,280 @@ add_action('rest_api_init', function() {
     ));
 });
 
+
+
+// Register Sales Reports Endpoints
+function register_sales_reports_endpoints() {
+    // Save sales report
+    register_rest_route('vansun/v1', '/sales-reports', array(
+        'methods' => 'POST',
+        'callback' => 'handle_sales_report_creation',
+        'permission_callback' => '__return_true'
+    ));
+    
+    // Get all sales reports
+    register_rest_route('vansun/v1', '/sales-reports', array(
+        'methods' => 'GET',
+        'callback' => 'get_all_sales_reports',
+        'permission_callback' => '__return_true'
+    ));
+    
+    // Get sales reports by staff member
+    register_rest_route('vansun/v1', '/sales-reports/staff/(?P<staff_id>\d+)', array(
+        'methods' => 'GET',
+        'callback' => 'get_sales_reports_by_staff',
+        'permission_callback' => '__return_true'
+    ));
+}
+add_action('rest_api_init', 'register_sales_reports_endpoints');
+
+// Handle sales report creation
+function handle_sales_report_creation($request) {
+    $params = $request->get_params();
+    
+    // Validate required fields
+    if (empty($params['staffMember']) || empty($params['services']) || empty($params['jewelry'])) {
+        return new WP_Error('missing_fields', 'Required fields are missing', array('status' => 400));
+    }
+    
+    // Create sales report data
+    $sales_report = array(
+        'post_title' => 'Sales Report - ' . $params['staffMember'] . ' - ' . date('Y-m-d H:i:s'),
+        'post_content' => json_encode($params),
+        'post_status' => 'publish',
+        'post_type' => 'sales_report',
+        'meta_input' => array(
+            'staff_member' => $params['staffMember'],
+            'staff_role' => $params['staffRole'] ?? 'Staff',
+            'staff_id' => $params['staffId'] ?? '',
+            'services' => $params['services'],
+            'jewelry' => $params['jewelry'],
+            'afterCare' => $params['afterCare'] ?? array(), // ✅ اضافه شد
+            'service_price' => $params['servicePrice'] ?? 0,
+            'jewelry_price' => $params['jewelryPrice'] ?? 0,
+            'afterCarePrice' => $params['afterCarePrice'] ?? 0, // ✅ اضافه شد
+            'before_tax' => $params['beforeTax'] ?? 0,
+            'after_tax' => $params['afterTax'] ?? 0,
+            'tax_amount' => $params['taxAmount'] ?? 0,
+            'custom_price' => $params['customPrice'] ?? 0,
+            'tip' => $params['tip'] ?? 0,
+            'customer_name' => $params['customerName'] ?? '',
+            'customer_phone' => $params['customerPhone'] ?? '',
+            'payment_method' => $params['paymentMethod'] ?? 'Cash',
+            'notes' => $params['notes'] ?? '',
+            'report_date' => $params['date'] ?? current_time('mysql')
+        )
+    );
+    
+    // Insert the post
+    $post_id = wp_insert_post($sales_report);
+    
+    if (is_wp_error($post_id)) {
+        return new WP_Error('insert_failed', 'Failed to save sales report', array('status' => 500));
+    }
+    
+    return array(
+        'success' => true,
+        'message' => 'Sales report saved successfully',
+        'post_id' => $post_id
+    );
+}
+
+// Get all sales reports
+function get_all_sales_reports($request) {
+    $args = array(
+        'post_type' => 'sales_report',
+        'post_status' => 'publish',
+        'posts_per_page' => -1,
+        'orderby' => 'date',
+        'order' => 'DESC'
+    );
+    
+    $posts = get_posts($args);
+    $reports = array();
+    
+    foreach ($posts as $post) {
+        $reports[] = array(
+            'id' => $post->ID,
+            'date' => get_post_meta($post->ID, 'report_date', true),
+            'staffMember' => get_post_meta($post->ID, 'staff_member', true),
+            'staffRole' => get_post_meta($post->ID, 'staff_role', true),
+            'staffId' => get_post_meta($post->ID, 'staff_id', true),
+            'services' => get_post_meta($post->ID, 'services', true),
+            'jewelry' => get_post_meta($post->ID, 'jewelry', true),
+            'afterCare' => get_post_meta($post->ID, 'afterCare', true), // ✅ اضافه شد
+            'servicePrice' => get_post_meta($post->ID, 'service_price', true),
+            'jewelryPrice' => get_post_meta($post->ID, 'jewelry_price', true),
+            'afterCarePrice' => get_post_meta($post->ID, 'afterCarePrice', true), // ✅ اضافه شد
+            'beforeTax' => get_post_meta($post->ID, 'before_tax', true),
+            'afterTax' => get_post_meta($post->ID, 'after_tax', true),
+            'taxAmount' => get_post_meta($post->ID, 'tax_amount', true),
+            'customPrice' => get_post_meta($post->ID, 'custom_price', true),
+            'tip' => get_post_meta($post->ID, 'tip', true),
+            'customerName' => get_post_meta($post->ID, 'customer_name', true),
+            'customerPhone' => get_post_meta($post->ID, 'customer_phone', true),
+            'paymentMethod' => get_post_meta($post->ID, 'payment_method', true),
+            'notes' => get_post_meta($post->ID, 'notes', true)
+        );
+    }
+    
+    return $reports;
+}
+
+// Get sales reports by staff member
+function get_sales_reports_by_staff($request) {
+    $staff_id = $request['staff_id'];
+    
+    $args = array(
+        'post_type' => 'sales_report',
+        'post_status' => 'publish',
+        'posts_per_page' => -1,
+        'orderby' => 'date',
+        'order' => 'DESC',
+        'meta_query' => array(
+            array(
+                'key' => 'staff_id',
+                'value' => $staff_id,
+                'compare' => '='
+            )
+        )
+    );
+    
+    $posts = get_posts($args);
+    $reports = array();
+    
+    foreach ($posts as $post) {
+        $reports[] = array(
+            'id' => $post->ID,
+            'date' => get_post_meta($post->ID, 'report_date', true),
+            'staffMember' => get_post_meta($post->ID, 'staff_member', true),
+            'staffRole' => get_post_meta($post->ID, 'staff_role', true),
+            'staffId' => get_post_meta($post->ID, 'staff_id', true),
+            'services' => get_post_meta($post->ID, 'services', true),
+            'jewelry' => get_post_meta($post->ID, 'jewelry', true),
+            'afterCare' => get_post_meta($post->ID, 'afterCare', true), // ✅ اضافه شد
+            'servicePrice' => get_post_meta($post->ID, 'service_price', true),
+            'jewelryPrice' => get_post_meta($post->ID, 'jewelry_price', true),
+            'afterCarePrice' => get_post_meta($post->ID, 'afterCarePrice', true), // ✅ اضافه شد
+            'beforeTax' => get_post_meta($post->ID, 'before_tax', true),
+            'afterTax' => get_post_meta($post->ID, 'after_tax', true),
+            'taxAmount' => get_post_meta($post->ID, 'tax_amount', true),
+            'customPrice' => get_post_meta($post->ID, 'custom_price', true),
+            'tip' => get_post_meta($post->ID, 'tip', true),
+            'customerName' => get_post_meta($post->ID, 'customer_name', true),
+            'customerPhone' => get_post_meta($post->ID, 'customer_phone', true),
+            'paymentMethod' => get_post_meta($post->ID, 'payment_method', true),
+            'notes' => get_post_meta($post->ID, 'notes', true)
+        );
+    }
+    
+    return $reports;
+}
+
+// Register custom post type for sales reports
+function register_sales_report_post_type() {
+    register_post_type('sales_report', array(
+        'labels' => array(
+            'name' => 'Sales Reports',
+            'singular_name' => 'Sales Report'
+        ),
+        'public' => false,
+        'show_ui' => true,
+        'show_in_menu' => true,
+        'capability_type' => 'post',
+        'hierarchical' => false,
+        'rewrite' => false,
+        'supports' => array('title')
+    ));
+}
+add_action('init', 'register_sales_report_post_type');
+
+
+
+
+// Register Staff Login Endpoint
+function register_staff_login_endpoint() {
+    register_rest_route('vansun/v1', '/staff-login', array(
+        'methods' => 'POST',
+        'callback' => 'handle_staff_login',
+        'permission_callback' => '__return_true'
+    ));
+}
+add_action('rest_api_init', 'register_staff_login_endpoint');
+
+function handle_staff_login($request) {
+    $params = $request->get_params();
+    
+    if (empty($params['username']) || empty($params['password'])) {
+        return new WP_Error('missing_fields', 'Username and password are required', array('status' => 400));
+    }
+    
+    $username = sanitize_text_field($params['username']);
+    $password = $params['password'];
+    
+    // Check against hardcoded users (for now)
+    $valid_users = array(
+        'manager' => array(
+            'id' => 1,
+            'password' => 'manager123',
+            'role' => 'Manager',
+            'fullName' => 'Manager',
+            'is_active' => true
+        ),
+        'staff1' => array(
+            'id' => 2,
+            'password' => 'staff123',
+            'role' => 'Staff',
+            'fullName' => 'Staff Member 1',
+            'is_active' => true
+        )
+    );
+    
+    if (isset($valid_users[$username]) && $valid_users[$username]['password'] === $password) {
+        return array(
+            'success' => true,
+            'user' => array(
+                'id' => $valid_users[$username]['id'],
+                'username' => $username,
+                'role' => $valid_users[$username]['role'],
+                'fullName' => $valid_users[$username]['fullName'],
+                'is_active' => $valid_users[$username]['is_active']
+            )
+        );
+    }
+    
+    return new WP_Error('invalid_credentials', 'Invalid username or password', array('status' => 401));
+}
+
+
+// Register Staff Users Endpoint
+function register_staff_users_endpoint() {
+    register_rest_route('vansun/v1', '/staff-users', array(
+        'methods' => 'GET',
+        'callback' => 'handle_get_staff_users',
+        'permission_callback' => '__return_true'
+    ));
+}
+add_action('rest_api_init', 'register_staff_users_endpoint');
+
+function handle_get_staff_users($request) {
+    // Return hardcoded users for now
+    $users = array(
+        array(
+            'id' => 1,
+            'username' => 'manager',
+            'fullName' => 'Manager',
+            'role' => 'Manager',
+            'is_active' => true
+        ),
+        array(
+            'id' => 2,
+            'username' => 'staff1',
+            'fullName' => 'Staff Member 1',
+            'role' => 'Staff',
+            'is_active' => true
+        )
+    );
+    
+    return $users;
+}
